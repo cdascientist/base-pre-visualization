@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Tensor Visualization</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        #container { 
+            position: relative;
+            width: 100%;
+            height: 100vh;
+        }
+        .panel {
+            position: absolute;
+            background: rgba(0,0,0,0.8);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 10;
+            border: 1px solid #333;
+        }
+        #info {
+            top: 10px;
+            left: 10px;
+            width: 280px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #legend {
+            top: 10px;
+            right: 10px;
+            width: 200px;
+        }
+        #controls {
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 5px;
+            width: 90%;
+            max-width: 800px;
+        }
+        button {
+            background: #333;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            margin: 2px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button.active {
+            background: #0066cc;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            margin-right: 8px;
+            border-radius: 50%;
+        }
+        h2, h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 2px;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border-radius: 5px;
+            text-align: center;
+            z-index: 100;
+        }
+        #error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border-radius: 5px;
+            text-align: center;
+            display: none;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    
+    <div id="loading">
+        Loading 3D visualization...
+    </div>
+    
+    <div id="info" class="panel">
+        <h2>3D Tensor Visualization</h2>
+        <p>Showing tensor coordinates and inverted trajectories with plane intersections.</p>
+        <div id="details">Click on a point for details</div>
+    </div>
+    
+    <div id="legend" class="panel">
+        <h3>Legend</h3>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ff4444;"></div>
+            <span>Product Quantity</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #44ff44;"></div>
+            <span>Product Monetary</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #4444ff;"></div>
+            <span>Product Cost</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ffff44;"></div>
+            <span>Service Quantity</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ff44ff;"></div>
+            <span>Service Monetary</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #44ffff;"></div>
+            <span>Service Cost</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ffffff;"></div>
+            <span>Overall Points</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ff8800;"></div>
+            <span>Trajectories</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ff4500;"></div>
+            <span>Product Inverted</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ffcc00;"></div>
+            <span>Service Inverted</span>
+        </div>
+    </div>
+    
+    <div id="controls" class="panel">
+        <button id="reset-view">Reset View</button>
+        <div class="slider-container">
+            <label for="zoom">Zoom:</label>
+            <input type="range" id="zoom" min="1" max="10" value="4" step="0.1" style="width: 100px;">
+        </div>
+        <button id="toggle-grid" class="active">Grid</button>
+        <button id="toggle-axes" class="active">Axes</button>
+        <button id="toggle-labels" class="active">Labels</button>
+        <button id="toggle-points" class="active">Points</button>
+        <button id="toggle-trajectories" class="active">Trajectories</button>
+        <button id="toggle-inverted" class="active">Inverted</button>
+        <button id="toggle-rotation">Auto-Rotate</button>
+    </div>
+    
+    <div id="error-message">
+        <h3>WebGL Error</h3>
+        <p>Could not initialize the 3D visualization.</p>
+        <p>Please try a different browser or check your graphics settings.</p>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Main visualization variables
+        let scene, camera, renderer;
+        let pointsGroup, labelsGroup, trajectoriesGroup, invertedGroup;
+        let gridHelper, axesHelper;
+        let points = [], pointsData = [];
+        let autoRotate = false;
+        
+        // Complete tensor data from the log file
+        const tensorData = {
+            product: {
+                quantityAvailable: { 
+                    tensor: [1.0000, 0.7500, 0.5000],
+                    magnitude: 1.3463,
+                    category: "Positive High" 
+                },
+                monetaryValue: { 
+                    tensor: [1.0000, 0.7500, 0.5000],
+                    magnitude: 1.3463,
+                    category: "Positive High" 
+                },
+                costContribution: { 
+                    tensor: [1.0000, 0.8000, 0.6000],
+                    magnitude: 1.4142,
+                    category: "Positive High" 
+                },
+                overall: { 
+                    tensor: [1.0000, 0.7667, 0.5333],
+                    magnitude: 1.3683,
+                    category: "Positive High" 
+                },
+                trajectory: [0.7308, 0.5603, 0.3898],
+                invertedTrajectory: [-0.7308, -0.5603, 0.3898],
+                invertedPlot: [
+                    { position: [1.0000, 0.7667, 0.5333], intensity: 1.3683 },
+                    { position: [0.2200, 0.1687, 0.9493], intensity: 1.3016 },
+                    { position: [-0.5600, -0.4293, 1.3653], intensity: 1.2349, flags: ["BEYOND-X-PLANE", "BEYOND-Y-PLANE"] },
+                    { position: [-1.2820, -0.9829, 1.7504], intensity: 1.1731, flags: ["BEYOND-X-PLANE", "BEYOND-Y-PLANE"] },
+                    { position: [-1.9679, -1.5087, 2.1162], intensity: 1.1145, flags: ["BEYOND-X-PLANE", "BEYOND-Y-PLANE"] }
+                ],
+                planeIntersections: {
+                    xPlane: [0.0000, -0.0000, 1.0667],
+                    yPlane: [0.0000, 0.0000, 1.0667]
+                },
+                negativeStats: {
+                    xCount: 3,
+                    yCount: 3,
+                    bothCount: 3
+                }
+            },
+            service: {
+                fulfillmentQuantity: { 
+                    tensor: [1.0000, 0.8000, 0.5000],
+                    magnitude: 1.3748,
+                    category: "Positive High" 
+                },
+                monetaryValue: { 
+                    tensor: [1.0000, 0.6667, 0.5000],
+                    magnitude: 1.3017,
+                    category: "Positive High" 
+                },
+                costContribution: { 
+                    tensor: [1.0000, 0.8750, 0.7500],
+                    magnitude: 1.5258,
+                    category: "Positive High" 
+                },
+                overall: { 
+                    tensor: [1.0000, 0.7806, 0.5833],
+                    magnitude: 1.3963,
+                    category: "Positive High" 
+                },
+                trajectory: [0.7162, 0.5590, 0.4178],
+                invertedTrajectory: [-0.7162, -0.5590, 0.4178],
+                invertedPlot: [
+                    { position: [1.0000, 0.7806, 0.5833], intensity: 1.3963 },
+                    { position: [0.2200, 0.1717, 1.0383], intensity: 1.3282 },
+                    { position: [-0.5600, -0.4371, 1.4933], intensity: 1.2601, flags: ["BEYOND-X-PLANE", "BEYOND-Y-PLANE"] },
+                    { position: [-1.2820, -1.0007, 1.9145], intensity: 1.1971, flags: ["BEYOND-X-PLANE", "BEYOND-Y-PLANE"] },
+                    { position: [-1.9679, -1.5361, 2.3146], intensity: 1.1373, flags: ["BEYOND-X-PLANE", "BEYOND-Y-PLANE"] }
+                ],
+                planeIntersections: {
+                    xPlane: [0.0000, -0.0000, 1.1667],
+                    yPlane: [0.0000, 0.0000, 1.1667]
+                },
+                negativeStats: {
+                    xCount: 3,
+                    yCount: 3,
+                    bothCount: 3
+                }
+            },
+            trajectoryIntersection: 1.0000
+        };
+        
+        // Camera controls
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let rotationSpeed = 0.005;
+        let autoRotationSpeed = 0.005;
+        
+        // Initialization with error handling
+        window.addEventListener('load', function() {
+            try {
+                // Check for WebGL support
+                if (!isWebGLAvailable()) {
+                    throw new Error("WebGL is not supported by your browser.");
+                }
+                
+                initScene();
+                setupLights();
+                createObjects();
+                setupEventListeners();
+                animate();
+                
+                // Hide loading indicator when done
+                document.getElementById('loading').style.display = 'none';
+            } catch (e) {
+                console.error("Error initializing visualization:", e);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error-message').style.display = 'block';
+                document.getElementById('error-message').innerHTML = `
+                    <h3>Visualization Error</h3>
+                    <p>${e.message}</p>
+                    <p>Please try a different browser or check your graphics settings.</p>
+                `;
+            }
+        });
+        
+        // Check for WebGL support
+        function isWebGLAvailable() {
+            try {
+                const canvas = document.createElement('canvas');
+                return !!(window.WebGLRenderingContext && 
+                    (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+            } catch (e) {
+                return false;
+            }
+        }
+        
+        function initScene() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111122);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(4, 4, 4);
+            camera.lookAt(0, 0, 0);
+            
+            // Create renderer with anti-aliasing and proper pixel ratio
+            renderer = new THREE.WebGLRenderer({ 
+                antialias: true,
+                powerPreference: "high-performance" 
+            });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit for performance
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('container').appendChild(renderer.domElement);
+            
+            // Create groups for organization
+            pointsGroup = new THREE.Group();
+            labelsGroup = new THREE.Group();
+            trajectoriesGroup = new THREE.Group();
+            invertedGroup = new THREE.Group();
+            
+            scene.add(pointsGroup);
+            scene.add(labelsGroup);
+            scene.add(trajectoriesGroup);
+            scene.add(invertedGroup);
+            
+            // Create helpers - larger grid for negative space
+            gridHelper = new THREE.GridHelper(5, 50, 0x444444, 0x222222);
+            scene.add(gridHelper);
+            
+            axesHelper = new THREE.AxesHelper(3);
+            scene.add(axesHelper);
+        }
+        
+        function setupLights() {
+            // Add ambient light
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            // Add directional light
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 2, 3);
+            scene.add(directionalLight);
+            
+            // Add another light from opposite direction for better visibility
+            const backLight = new THREE.DirectionalLight(0xffffff, 0.4);
+            backLight.position.set(-1, -1, -1);
+            scene.add(backLight);
+        }
+        
+        function createObjects() {
+            // Add axis labels with better positioning
+            createLabel('X', [3.1, 0, 0], 0xff4444);
+            createLabel('Y', [0, 3.1, 0], 0x44ff44);
+            createLabel('Z', [0, 0, 3.1], 0x4444ff);
+            createLabel('-X', [-3.1, 0, 0], 0xff4444);
+            createLabel('-Y', [0, -3.1, 0], 0x44ff44);
+            
+            // Add grid labels
+            for (let i = -3; i <= 3; i += 1) {
+                if (i !== 0) {
+                    createLabel(i.toString(), [i, -0.1, -0.1], 0xaaaaaa, 0.5);
+                    createLabel(i.toString(), [-0.1, i, -0.1], 0xaaaaaa, 0.5);
+                }
+            }
+            
+            // Add all tensor points
+            addTensorPoints();
+            
+            // Add regular trajectories
+            addTrajectories();
+            
+            // Add inverted trajectories
+            addInvertedTrajectories();
+        }
+        
+        function addTensorPoints() {
+            // Product points
+            createSphere(tensorData.product.quantityAvailable.tensor, 0.05, 0xff4444, 'Product Quantity', tensorData.product.quantityAvailable);
+            createSphere(tensorData.product.monetaryValue.tensor, 0.05, 0x44ff44, 'Product Monetary', tensorData.product.monetaryValue);
+            createSphere(tensorData.product.costContribution.tensor, 0.05, 0x4444ff, 'Product Cost', tensorData.product.costContribution);
+            
+            // Service points
+            createSphere(tensorData.service.fulfillmentQuantity.tensor, 0.05, 0xffff44, 'Service Quantity', tensorData.service.fulfillmentQuantity);
+            createSphere(tensorData.service.monetaryValue.tensor, 0.05, 0xff44ff, 'Service Monetary', tensorData.service.monetaryValue);
+            createSphere(tensorData.service.costContribution.tensor, 0.05, 0x44ffff, 'Service Cost', tensorData.service.costContribution);
+            
+            // Overall points (slightly larger)
+            createSphere(tensorData.product.overall.tensor, 0.07, 0xffffff, 'Product Overall', tensorData.product.overall);
+            createSphere(tensorData.service.overall.tensor, 0.07, 0xffffff, 'Service Overall', tensorData.service.overall);
+        }
+        
+        function createSphere(position, radius, color, name, data) {
+            try {
+                // Create sphere
+                const geometry = new THREE.SphereGeometry(radius, 16, 16);
+                const material = new THREE.MeshPhongMaterial({ 
+                    color: color,
+                    shininess: 80,
+                    emissive: color,
+                    emissiveIntensity: 0.2
+                });
+                const sphere = new THREE.Mesh(geometry, material);
+                
+                // Set position
+                sphere.position.set(...position);
+                pointsGroup.add(sphere);
+                
+                // Add label
+                createLabel(name, [position[0] + 0.1, position[1] + 0.1, position[2]], color);
+                
+                // Store for raycasting
+                points.push(sphere);
+                pointsData.push({
+                    name: name,
+                    position: position,
+                    magnitude: data.magnitude,
+                    category: data.category
+                });
+                
+                return sphere;
+            } catch (e) {
+                console.error(`Error creating sphere for ${name}:`, e);
+                return null;
+            }
+        }
+        
+        function createLabel(text, position, color, scale = 1.0) {
+            try {
+                // Create canvas for text
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = 256;
+                canvas.height = 64;
+                
+                // Clear canvas
+                ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw text
+                ctx.font = 'Bold 32px Arial';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, 8, canvas.height / 2);
+                
+                // Create sprite
+                const texture = new THREE.CanvasTexture(canvas);
+                texture.needsUpdate = true;
+                
+                const material = new THREE.SpriteMaterial({
+                    map: texture,
+                    transparent: true,
+                    color: color instanceof THREE.Color ? color : new THREE.Color(color)
+                });
+                
+                const sprite = new THREE.Sprite(material);
+                sprite.position.set(...position);
+                sprite.scale.set(0.5 * scale, 0.125 * scale, 1);
+                
+                labelsGroup.add(sprite);
+                return sprite;
+            } catch (e) {
+                console.error(`Error creating label for ${text}:`, e);
+                return null;
+            }
+        }
+        
+        function addTrajectories() {
+            // Add product trajectory
+            createArrow(
+                tensorData.product.overall.tensor,
+                tensorData.product.trajectory,
+                0xff8800,
+                'Product Trajectory',
+                trajectoriesGroup
+            );
+            
+            // Add service trajectory
+            createArrow(
+                tensorData.service.overall.tensor,
+                tensorData.service.trajectory,
+                0xff8800,
+                'Service Trajectory',
+                trajectoriesGroup
+            );
+        }
+        
+        function addInvertedTrajectories() {
+            // Add inverted product trajectory arrow
+            createArrow(
+                tensorData.product.overall.tensor,
+                tensorData.product.invertedTrajectory,
+                0xff4500,
+                'Product Inverted Trajectory',
+                invertedGroup
+            );
+            
+            // Add inverted service trajectory arrow
+            createArrow(
+                tensorData.service.overall.tensor,
+                tensorData.service.invertedTrajectory,
+                0xffcc00,
+                'Service Inverted Trajectory',
+                invertedGroup
+            );
+            
+            // Add inverted product plot
+            createInvertedPlot(
+                tensorData.product.invertedPlot,
+                0xff4500,
+                'Product Inverted Plot'
+            );
+            
+            // Add inverted service plot
+            createInvertedPlot(
+                tensorData.service.invertedPlot,
+                0xffcc00,
+                'Service Inverted Plot'
+            );
+            
+            // Add X and Y planes and intersection points
+            addXYPlanes();
+        }
+        
+        function createArrow(start, end, color, name, targetGroup) {
+            try {
+                // Create line points
+                const linePoints = [
+                    new THREE.Vector3(...start),
+                    new THREE.Vector3(
+                        start[0] + end[0],
+                        start[1] + end[1],
+                        start[2] + end[2]
+                    )
+                ];
+                
+                // Create line
+                const lineGeometry = new THREE.BufferGeometry().setFromPoints(linePoints);
+                const lineMaterial = new THREE.LineBasicMaterial({ 
+                    color: color, 
+                    linewidth: 2 
+                });
+                const line = new THREE.Line(lineGeometry, lineMaterial);
+                
+                targetGroup.add(line);
+                
+                // Create arrowhead (cone)
+                const coneGeometry = new THREE.ConeGeometry(0.04, 0.12, 8);
+                const coneMaterial = new THREE.MeshPhongMaterial({ 
+                    color: color,
+                    shininess: 30
+                });
+                
+                const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+                cone.position.set(
+                    start[0] + end[0],
+                    start[1] + end[1],
+                    start[2] + end[2]
+                );
+                
+                // Orient cone to point along trajectory
+                const lookAt = new THREE.Vector3(...start);
+                cone.lookAt(lookAt);
+                
+                // Rotate to align with line
+                cone.rotateX(Math.PI);
+                
+                targetGroup.add(cone);
+                
+                return {
+                    line: line,
+                    cone: cone
+                };
+            } catch (e) {
+                console.error(`Error creating arrow for ${name}:`, e);
+                return null;
+            }
+        }
+        
+        function createInvertedPlot(points, color, name) {
+            try {
+                // Prepare points for line
+                const lineVertices = [];
+                for (const point of points) {
+                    lineVertices.push(new THREE.Vector3(...point.position));
+                }
+                
+                // Create line
+                const lineGeometry = new THREE.BufferGeometry().setFromPoints(lineVertices);
+                const lineMaterial = new THREE.LineBasicMaterial({ 
+                    color: color,
+                    linewidth: 2
+                });
+                
+                const line = new THREE.Line(lineGeometry, lineMaterial);
+                invertedGroup.add(line);
+                
+                // Add spheres for each point
+                for (let i = 0; i < points.length; i++) {
+                    const point = points[i];
+                    const normalizedIntensity = point.intensity / points[0].intensity;
+                    
+                    // Create sphere with size based on intensity
+                    const sphereGeometry = new THREE.SphereGeometry(0.04 * normalizedIntensity, 8, 8);
+                    const sphereMaterial = new THREE.MeshPhongMaterial({ 
+                        color: color,
+                        shininess: 60,
+                        emissive: color,
+                        emissiveIntensity: 0.3 * normalizedIntensity
+                    });
+                    
+                    const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+                    sphere.position.set(...point.position);
+                    invertedGroup.add(sphere);
+                    
+                    // Add point labels
+                    if (i % 2 === 0 || i === points.length - 1) {
+                        const labelText = point.flags ? `D${i}*` : `D${i}`;
+                        createLabel(labelText, [
+                            point.position[0] + 0.05,
+                            point.position[1] + 0.05,
+                            point.position[2]
+                        ], color, 0.7);
+                    }
+                }
+                
+                return line;
+            } catch (e) {
+                console.error(`Error creating inverted plot for ${name}:`, e);
+                return null;
+            }
+        }
+        
+        function addXYPlanes() {
+            try {
+                // Create X-Plane (at x=0)
+                const xPlaneGeometry = new THREE.PlaneGeometry(5, 5);
+                const xPlaneMaterial = new THREE.MeshBasicMaterial({ 
+                    color: 0xff0000, 
+                    transparent: true, 
+                    opacity: 0.2,
+                    side: THREE.DoubleSide
+                });
+                const xPlane = new THREE.Mesh(xPlaneGeometry, xPlaneMaterial);
+                xPlane.rotation.y = Math.PI / 2; // Rotate to align with yz plane
+                xPlane.position.set(0, 0, 0);
+                invertedGroup.add(xPlane);
+                
+                // Create Y-Plane (at y=0)
+                const yPlaneGeometry = new THREE.PlaneGeometry(5, 5);
+                const yPlaneMaterial = new THREE.MeshBasicMaterial({ 
+                    color: 0x00ff00, 
+                    transparent: true, 
+                    opacity: 0.2,
+                    side: THREE.DoubleSide
+                });
+                const yPlane = new THREE.Mesh(yPlaneGeometry, yPlaneMaterial);
+                yPlane.rotation.x = Math.PI / 2; // Rotate to align with xz plane
+                yPlane.position.set(0, 0, 0);
+                invertedGroup.add(yPlane);
+                
+                // Add intersection markers for product
+                const productXIntersection = tensorData.product.planeIntersections.xPlane;
+                const productYIntersection = tensorData.product.planeIntersections.yPlane;
+                
+                createIntersectionMarker(productXIntersection, 0xff4500, 'X-P');
+                createIntersectionMarker(productYIntersection, 0xff4500, 'Y-P');
+                
+                // Add intersection markers for service
+                const serviceXIntersection = tensorData.service.planeIntersections.xPlane;
+                const serviceYIntersection = tensorData.service.planeIntersections.yPlane;
+                
+                createIntersectionMarker(serviceXIntersection, 0xffcc00, 'X-S');
+                createIntersectionMarker(serviceYIntersection, 0xffcc00, 'Y-S');
+                
+                return {
+                    xPlane,
+                    yPlane
+                };
+            } catch (e) {
+                console.error(`Error creating intersection planes:`, e);
+                return null;
+            }
+        }
+        
+        function createIntersectionMarker(position, color, name) {
+            try {
+                // Create sphere at intersection point
+                const geometry = new THREE.SphereGeometry(0.06, 16, 16);
+                const material = new THREE.MeshPhongMaterial({ 
+                    color: color,
+                    transparent: true,
+                    opacity: 0.7,
+                    emissive: color,
+                    emissiveIntensity: 0.5
+                });
+                const sphere = new THREE.Mesh(geometry, material);
+                
+                // Set position
+                sphere.position.set(...position);
+                invertedGroup.add(sphere);
+                
+                // Add label
+                createLabel(name, [
+                    position[0] + 0.1,
+                    position[1] + 0.1,
+                    position[2]
+                ], color, 0.7);
+                
+                return sphere;
+            } catch (e) {
+                console.error(`Error creating intersection marker for ${name}:`, e);
+                return null;
+            }
+        }
+        
+        function setupEventListeners() {
+            // Window resize
+            window.addEventListener('resize', onWindowResize, false);
+            
+            // Mouse controls
+            const canvas = renderer.domElement;
+            canvas.addEventListener('mousedown', onMouseDown, false);
+            canvas.addEventListener('mousemove', onMouseMove, false);
+            canvas.addEventListener('mouseup', onMouseUp, false);
+            canvas.addEventListener('mouseleave', onMouseUp, false); // Also cancel on mouse leave
+            canvas.addEventListener('click', onClick, false);
+            canvas.addEventListener('wheel', onMouseWheel, false);
+            
+            // Touch support
+            canvas.addEventListener('touchstart', onTouchStart, false);
+            canvas.addEventListener('touchmove', onTouchMove, false);
+            canvas.addEventListener('touchend', onTouchEnd, false);
+            
+            // UI controls
+            document.getElementById('reset-view').addEventListener('click', resetView, false);
+            document.getElementById('zoom').addEventListener('input', handleZoom, false);
+            document.getElementById('toggle-grid').addEventListener('click', function() {
+                this.classList.toggle('active');
+                gridHelper.visible = !gridHelper.visible;
+            });
+            
+            document.getElementById('toggle-axes').addEventListener('click', function() {
+                this.classList.toggle('active');
+                axesHelper.visible = !axesHelper.visible;
+            });
+            
+            document.getElementById('toggle-labels').addEventListener('click', function() {
+                this.classList.toggle('active');
+                labelsGroup.visible = !labelsGroup.visible;
+            });
+            
+            document.getElementById('toggle-points').addEventListener('click', function() {
+                this.classList.toggle('active');
+                pointsGroup.visible = !pointsGroup.visible;
+            });
+            
+            document.getElementById('toggle-trajectories').addEventListener('click', function() {
+                this.classList.toggle('active');
+                trajectoriesGroup.visible = !trajectoriesGroup.visible;
+            });
+            
+            document.getElementById('toggle-inverted').addEventListener('click', function() {
+                this.classList.toggle('active');
+                invertedGroup.visible = !invertedGroup.visible;
+            });
+            
+            document.getElementById('toggle-rotation').addEventListener('click', function() {
+                this.classList.toggle('active');
+                autoRotate = !autoRotate;
+            });
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function onMouseDown(event) {
+            event.preventDefault();
+            isDragging = true;
+            previousMousePosition = {
+                x: event.clientX,
+                y: event.clientY
+            };
+        }
+        
+        function onMouseMove(event) {
+            if (!isDragging) return;
+            
+            const deltaMove = {
+                x: event.clientX - previousMousePosition.x,
+                y: event.clientY - previousMousePosition.y
+            };
+            
+            // Rotate scene based on mouse movement
+            scene.rotation.y += deltaMove.x * rotationSpeed;
+            scene.rotation.x += deltaMove.y * rotationSpeed;
+            
+            // Limit x rotation to prevent flipping
+            scene.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, scene.rotation.x));
+            
+            previousMousePosition = {
+                x: event.clientX,
+                y: event.clientY
+            };
+        }
+        
+        function onMouseUp() {
+            isDragging = false;
+        }
+        
+        // Touch support
+        function onTouchStart(event) {
+            if (event.touches.length === 1) {
+                event.preventDefault();
+                isDragging = true;
+                previousMousePosition = {
+                    x: event.touches[0].pageX,
+                    y: event.touches[0].pageY
+                };
+            }
+        }
+        
+        function onTouchMove(event) {
+            if (isDragging && event.touches.length === 1) {
+                event.preventDefault();
+                
+                const deltaMove = {
+                    x: event.touches[0].pageX - previousMousePosition.x,
+                    y: event.touches[0].pageY - previousMousePosition.y
+                };
+                
+                // Rotate scene based on touch movement
+                scene.rotation.y += deltaMove.x * rotationSpeed;
+                scene.rotation.x += deltaMove.y * rotationSpeed;
+                
+                // Limit x rotation to prevent flipping
+                scene.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, scene.rotation.x));
+                
+                previousMousePosition = {
+                    x: event.touches[0].pageX,
+                    y: event.touches[0].pageY
+                };
+            }
+        }
+        
+        function onTouchEnd() {
+            isDragging = false;
+        }
+        
+        function onMouseWheel(event) {
+            event.preventDefault();
+            
+            // Zoom based on wheel direction
+            const zoomSpeed = 0.1;
+            const delta = Math.sign(event.deltaY);
+            
+            const zoom = camera.position.length();
+            const newZoom = Math.max(1, Math.min(10, zoom + delta * zoomSpeed));
+            
+            // Update camera position
+            camera.position.normalize().multiplyScalar(newZoom);
+            
+            // Update zoom slider
+            document.getElementById('zoom').value = newZoom;
+        }
+        
+        function resetView() {
+            // Reset camera position and scene rotation
+            camera.position.set(4, 4, 4);
+            camera.lookAt(0, 0, 0);
+            scene.rotation.set(0, 0, 0);
+            
+            // Reset zoom slider
+            document.getElementById('zoom').value = 4;
+        }
+        
+        function handleZoom(event) {
+            const zoomValue = parseFloat(event.target.value);
+            
+            // Get normalized direction
+            const direction = camera.position.clone().normalize();
+            
+            // Set new camera position
+            camera.position.copy(direction.multiplyScalar(zoomValue));
+        }
+        
+        function onClick(event) {
+            // Calculate mouse position in normalized device coordinates
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            // Setup raycasting
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Check for intersections with points
+            const intersects = raycaster.intersectObjects(points);
+            
+            if (intersects.length > 0) {
+                const index = points.indexOf(intersects[0].object);
+                const data = pointsData[index];
+                
+                // Update info panel
+                let html = `
+                    <h3>${data.name}</h3>
+                    <p><strong>Position:</strong> (${data.position.map(v => v.toFixed(4)).join(', ')})</p>
+                    <p><strong>Magnitude:</strong> ${data.magnitude.toFixed(4)}</p>
+                    <p><strong>Category:</strong> ${data.category}</p>
+                `;
+                
+                // Add inverted trajectory info for overall points
+                if (data.name.includes('Overall')) {
+                    const type = data.name.split(' ')[0].toLowerCase();
+                    const invertedData = tensorData[type].invertedPlot;
+                    const planeData = tensorData[type].planeIntersections;
+                    const negativeStats = tensorData[type].negativeStats;
+                    
+                    html += `
+                        <h4>Inverted Trajectory</h4>
+                        <p><strong>Initial Direction:</strong> (${tensorData[type].invertedTrajectory.map(v => v.toFixed(4)).join(', ')})</p>
+                        <p><strong>X-Plane Intersection:</strong> (${planeData.xPlane.map(v => v.toFixed(4)).join(', ')})</p>
+                        <p><strong>Y-Plane Intersection:</strong> (${planeData.yPlane.map(v => v.toFixed(4)).join(', ')})</p>
+                        <p><strong>Points Generated:</strong> ${invertedData.length}</p>
+                        <p><strong>Points Beyond X-Plane:</strong> ${negativeStats.xCount}</p>
+                        <p><strong>Points Beyond Y-Plane:</strong> ${negativeStats.yCount}</p>
+                        <p><strong>Points Beyond Both:</strong> ${negativeStats.bothCount}</p>
+                    `;
+                    
+                    // Add selected inverted points
+                    html += `
+                        <h4>Inverted Plot Points</h4>
+                        <table>
+                            <tr>
+                                <th>Depth</th>
+                                <th>Position</th>
+                                <th>Intensity</th>
+                                <th>Flags</th>
+                            </tr>
+                    `;
+                    
+                    for (let i = 0; i < invertedData.length; i++) {
+                        const point = invertedData[i];
+                        const flags = point.flags ? point.flags.join(", ") : "";
+                        
+                        html += `
+                            <tr>
+                                <td>D${i}</td>
+                                <td>(${point.position.map(v => v.toFixed(2)).join(', ')})</td>
+                                <td>${point.intensity.toFixed(4)}</td>
+                                <td>${flags}</td>
+                            </tr>
+                        `;
+                    }
+                    
+                    html += `</table>`;
+                    
+                    // Add comparative analysis if it's an overall point
+                    if (data.name === 'Product Overall' || data.name === 'Service Overall') {
+                        const otherType = data.name.includes('Product') ? 'service' : 'product';
+                        const currentData = invertedData;
+                        const otherData = tensorData[otherType].invertedPlot;
+                        
+                        // Calculate distance between final points
+                        const finalCurrentPos = currentData[currentData.length-1].position;
+                        const finalOtherPos = otherData[otherData.length-1].position;
+                        
+                        const distance = Math.sqrt(
+                            Math.pow(finalCurrentPos[0] - finalOtherPos[0], 2) +
+                            Math.pow(finalCurrentPos[1] - finalOtherPos[1], 2) +
+                            Math.pow(finalCurrentPos[2] - finalOtherPos[2], 2)
+                        );
+                        
+                        html += `
+                            <h4>Comparative Analysis</h4>
+                            <p><strong>Z-Value at X-Plane:</strong> ${planeData.xPlane[2].toFixed(4)}</p>
+                            <p><strong>Z-Value at Y-Plane:</strong> ${planeData.yPlane[2].toFixed(4)}</p>
+                            <p><strong>Distance to ${otherType.charAt(0).toUpperCase() + otherType.slice(1)} Final:</strong> ${distance.toFixed(4)}</p>
+                            <p><strong>Trajectory Intersection:</strong> ${tensorData.trajectoryIntersection.toFixed(4)}</p>
+                        `;
+                    }
+                }
+                
+                document.getElementById('details').innerHTML = html;
+            }
+        }
+        
+        function animate() {
+            // Use requestAnimationFrame for optimal performance
+            requestAnimationFrame(animate);
+            
+            // Auto-rotation
+            if (autoRotate) {
+                scene.rotation.y += autoRotationSpeed;
+            }
+            
+            // Render scene
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
